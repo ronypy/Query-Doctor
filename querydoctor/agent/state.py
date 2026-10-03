@@ -78,4 +78,6 @@ class AgentState(TypedDict, total=False):
 
     approved: bool | None
     human_feedback: str | None
+    real_validate: bool            # run real validation after approval
+    calls_per_day: float | None    # savings assumption (None -> derive)
     report: dict | None

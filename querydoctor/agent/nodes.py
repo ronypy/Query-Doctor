@@ -18,6 +18,7 @@ from querydoctor.db import get_conn
 from querydoctor.report import build_report
 from querydoctor.tools.explain import explain_query, summarize_plan
 from querydoctor.tools.query_map import lookup
+from querydoctor.tools.real_validate import real_validate as run_real_validation
 from querydoctor.tools.safety import check_index_sql
 from querydoctor.tools.schema import (
     get_column_map,
@@ -436,6 +437,41 @@ def human_approval(state: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# real_validate  [tool: real index in a rolled-back transaction]
+# ---------------------------------------------------------------------------
+
+def real_validate(state: dict) -> dict:
+
+    best = state["best"]
+
+    try:
+        actual = run_real_validation(
+            state["sql"], best["sql"], runs=get_settings().real_validation_runs
+        )
+    except Exception as e:
+        return {
+            "best": {**best, "actual": None,
+                     "actual_error": f"{type(e).__name__}: {str(e).splitlines()[0]}"},
+            "trace": _trace("real_validate",
+                            f"Real validation skipped/failed: {str(e).splitlines()[0]}"),
+        }
+
+    used = "used" if actual["index_used"] else "NOT used"
+    message = (
+        f"Actual (EXPLAIN ANALYZE, median of {actual['runs']}): "
+        f"{actual['before_ms']:,.0f} ms → {actual['after_ms']:,.0f} ms "
+        f"({actual['speedup']:.1f}× faster), real index {used}, actual size "
+        f"{actual['actual_size_bytes'] / 1024 / 1024:,.0f} MB, built in "
+        f"{actual['build_seconds']:.1f} s and rolled back."
+    )
+
+    return {
+        "best": {**best, "actual": actual},
+        "trace": _trace("real_validate", message, {"actual": actual}),
+    }
+
+
+# ---------------------------------------------------------------------------
 # report  [deterministic]
 # ---------------------------------------------------------------------------
 
@@ -467,7 +503,7 @@ def route_after_critic(state: dict) -> str:
 def route_after_approval(state: dict) -> str:
 
     if state.get("approved"):
-        return "report"
+        return "real_validate" if state.get("real_validate") else "report"
 
     # Rejected with feedback -> try again, within a hard cap.
     hard_cap = state["max_iterations"] * 2

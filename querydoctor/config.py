@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     statement_timeout_ms: int = 30000
     demo_mode: bool = False
 
+    # Real validation builds a real index inside a rolled-back transaction
+    # on the LOCAL demo database. Off unless explicitly enabled.
+    enable_real_validation: bool = False
+    real_validation_runs: int = 3
+
+    # Savings model assumptions (stated in every report).
+    calls_per_day: float | None = None      # None -> derive from pg_stat_statements
+    vcpu_hour_price_usd: float = 0.04
+    storage_gb_month_usd: float = 0.10
+
 
 @lru_cache
 def get_settings() -> Settings:

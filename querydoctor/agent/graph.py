@@ -3,7 +3,8 @@ QueryDoctor LangGraph workflow.
 
 START → fetch_context → diagnose → propose → safety_check → validate → critic
 critic:          accept → human_approval | retry → propose | give_up → report
-human_approval:  approved → report | rejected + feedback → propose | rejected → report
+human_approval:  approved → real_validate? → report
+                 rejected + feedback → propose | rejected → report
 report → END
 
 CLI:
@@ -53,6 +54,7 @@ def build_graph(checkpointer=None):
     g.add_node("validate", nodes.validate)
     g.add_node("critic", nodes.critic)
     g.add_node("human_approval", nodes.human_approval)
+    g.add_node("real_validate", nodes.real_validate)
     g.add_node("report", nodes.report)
 
     g.add_edge(START, "fetch_context")
@@ -70,8 +72,9 @@ def build_graph(checkpointer=None):
     g.add_conditional_edges(
         "human_approval",
         nodes.route_after_approval,
-        ["propose", "report"],
+        ["propose", "real_validate", "report"],
     )
+    g.add_edge("real_validate", "report")
     g.add_edge("report", END)
 
     return g.compile(
@@ -87,9 +90,15 @@ def run_config(thread_id: str) -> dict:
 
 
 def initial_state(query_key: str, threshold: float | None = None,
-                  max_iterations: int | None = None) -> dict:
+                  max_iterations: int | None = None,
+                  real_validate: bool = False,
+                  calls_per_day: float | None = None) -> dict:
 
-    state = {"query_key": query_key, "history": [], "trace": []}
+    state = {"query_key": query_key, "history": [], "trace": [],
+             "real_validate": real_validate}
+
+    if calls_per_day:
+        state["calls_per_day"] = calls_per_day
 
     if threshold is not None:
         state["threshold"] = threshold
@@ -152,6 +161,11 @@ def main():
                         help="fraction, e.g. 0.30")
     parser.add_argument("--max-iterations", type=int, default=None)
     parser.add_argument("--auto-approve", action="store_true")
+    parser.add_argument("--real-validate", action="store_true",
+                        help="after approval, build the index in a rolled-back "
+                             "transaction and measure EXPLAIN ANALYZE latency")
+    parser.add_argument("--calls-per-day", type=float, default=None,
+                        help="savings assumption (default: derive from stats)")
     parser.add_argument("--checkpointer", choices=["sqlite", "memory"],
                         default="sqlite")
     args = parser.parse_args()
@@ -163,7 +177,8 @@ def main():
     print(f"QueryDoctor — {args.query} (thread {thread_id})")
 
     pending = _print_updates(graph.stream(
-        initial_state(args.query, args.threshold, args.max_iterations),
+        initial_state(args.query, args.threshold, args.max_iterations,
+                      args.real_validate, args.calls_per_day),
         config,
         stream_mode="updates",
     ))
