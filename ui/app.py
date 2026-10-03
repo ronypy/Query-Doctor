@@ -23,6 +23,8 @@ from querydoctor.agent.graph import (
 )
 from querydoctor.config import get_settings
 from querydoctor.db import get_conn
+from querydoctor.tools.hygiene import analyze_index_hygiene, hygiene_markdown
+from querydoctor.tools.real_validate import real_validation_status
 from querydoctor.tools.slow_queries import get_slow_queries
 
 
@@ -38,6 +40,7 @@ NODE_ICONS = {
     "validate": "🧪",
     "critic": "⚖️",
     "human_approval": "🙋",
+    "real_validate": "⏱️",
     "report": "📄",
 }
 
@@ -346,6 +349,21 @@ def render_run(graph, config):
               f"{best['reduction_pct']:.1f}%" if best else "–",
               help="HypoPG hypothetical index, planner estimate — not runtime.")
 
+    actual = (best or {}).get("actual")
+    if actual:
+        savings = (values.get("report") or {}).get("savings")
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric("Actual runtime before", f"{actual['before_ms']:,.0f} ms",
+                  help="EXPLAIN ANALYZE median, local demo DB (measured).")
+        a2.metric("Actual runtime after", f"{actual['after_ms']:,.0f} ms",
+                  delta=f"-{actual['runtime_reduction_pct']:.1f}%",
+                  delta_color="inverse",
+                  help="Real index built in a rolled-back transaction.")
+        a3.metric("Measured speed-up", f"{actual['speedup']:.1f}×")
+        a4.metric("Est. net savings / month",
+                  f"${savings['monthly_net_savings_usd']:,.2f}" if savings else "–",
+                  help="From measured runtimes; assumptions listed in the report.")
+
     # Bottleneck
     if values.get("diagnosis"):
         with st.container(border=True):
@@ -403,6 +421,8 @@ def render_run(graph, config):
 
 graph = get_graph()
 
+rv_allowed, rv_reason = real_validation_status()
+
 with st.sidebar:
     st.header("Settings")
     threshold = st.slider(
@@ -413,11 +433,43 @@ with st.sidebar:
     )
     max_iterations = st.slider("Max proposal iterations", 1, 5,
                                int(settings.max_iterations))
+    real_validate = st.checkbox(
+        "Real validation after approval",
+        value=rv_allowed,
+        disabled=not rv_allowed,
+        help="Builds the approved index for real inside a transaction that is "
+             "rolled back, and measures EXPLAIN ANALYZE latency. " + rv_reason,
+    )
+    calls_per_day = st.number_input(
+        "Calls per day (savings assumption)", min_value=0, value=10_000,
+        step=1_000,
+        help="Used only for the monthly savings estimate. 0 = derive from "
+             "pg_stat_statements (unreliable for short demo windows).",
+    )
     st.caption(f"LLM: {settings.llm_provider} · `{settings.llm_model}`")
     if st.button("Start over"):
         st.session_state.pop("thread_id", None)
         st.session_state.pop("run_error", None)
         st.rerun()
+
+    with st.expander("Demo tools"):
+        st.caption("Local demo database only.")
+        confirm = st.checkbox("I understand this drops non-PK indexes and resets stats")
+        if st.button("Reset demo", disabled=not confirm):
+            from scripts.reset_demo import reset_demo
+            with st.spinner("Resetting and re-running the workload (~1 min)…"):
+                result = reset_demo(verbose=False)
+            st.cache_data.clear()
+            st.session_state.pop("thread_id", None)
+            st.success(f"Reset done in {result['seconds']:.0f} s; dropped "
+                       f"{len(result['dropped'])} index(es).")
+        if st.button("Plant bad indexes (hygiene demo)"):
+            from scripts.plant_bad_indexes import plant_bad_indexes
+            with st.spinner("Creating duplicate / redundant / unused indexes…"):
+                plant_bad_indexes(verbose=False)
+            st.cache_data.clear()
+            st.success("Planted. Open the Index hygiene page.")
+
     st.divider()
     st.caption(
         "Safety: read-only DB role · sqlglot allow-list (single CREATE INDEX) · "
@@ -440,51 +492,112 @@ else:
     st.error(f"Database unavailable: {status['error']} — is `docker compose up -d` running?")
     st.stop()
 
-st.subheader("Slowest queries (pg_stat_statements)")
+PAGES = ["Single query", "Index hygiene"]
+mode = st.radio("Mode", PAGES, horizontal=True, key="mode",
+                label_visibility="collapsed")
 
-queries = slow_queries()
 
-if not queries:
-    st.warning("No workload queries recorded yet. Run `python scripts/run_workload.py`.")
-    st.stop()
+def page_single_query():
 
-table = pd.DataFrame([{
-    "Query": q["name"].upper(),
-    "Mean (ms)": round(q["mean_exec_time"]),
-    "Calls": q["calls"],
-    "Total (ms)": round(q["total_exec_time"]),
-    "Normalized SQL": " ".join(q["query"].split())[:120],
-} for q in queries])
+    st.subheader("Slowest queries (pg_stat_statements)")
 
-selection = st.dataframe(
-    table,
-    hide_index=True,
-    width="stretch",
-    on_select="rerun",
-    selection_mode="single-row",
-    key="slow_queries",
-    column_config={
-        "Mean (ms)": st.column_config.NumberColumn(format="%d"),
-        "Total (ms)": st.column_config.NumberColumn(format="%d"),
-    },
-)
+    queries = slow_queries()
 
-rows = selection.selection.rows if selection else []
-selected = queries[rows[0]] if rows else queries[0]
+    if not queries:
+        st.warning("No workload queries recorded yet. Run `python -m scripts.run_workload`.")
+        return
 
-c1, c2 = st.columns([1, 4])
-if c1.button(f"🩺 Diagnose {selected['name'].upper()}", type="primary", key="diagnose"):
-    st.session_state["thread_id"] = uuid.uuid4().hex[:12]
-    st.session_state.pop("run_error", None)
-    run_stream(
-        graph,
-        initial_state(selected["name"], threshold, max_iterations),
-        current_config(),
-        f"Diagnosing {selected['name'].upper()}…",
+    table = pd.DataFrame([{
+        "Query": q["name"].upper(),
+        "Mean (ms)": round(q["mean_exec_time"]),
+        "Calls": q["calls"],
+        "Total (ms)": round(q["total_exec_time"]),
+        "Normalized SQL": " ".join(q["query"].split())[:120],
+    } for q in queries])
+
+    selection = st.dataframe(
+        table,
+        hide_index=True,
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key="slow_queries",
+        column_config={
+            "Mean (ms)": st.column_config.NumberColumn(format="%d"),
+            "Total (ms)": st.column_config.NumberColumn(format="%d"),
+        },
     )
-c2.caption("Select a row to choose a query. Runtimes are measured; costs below are planner estimates.")
 
-config = current_config()
-if config:
-    st.divider()
-    render_run(graph, config)
+    rows = selection.selection.rows if selection else []
+    selected = queries[rows[0]] if rows else queries[0]
+
+    c1, c2 = st.columns([1, 4])
+    if c1.button(f"🩺 Diagnose {selected['name'].upper()}", type="primary", key="diagnose"):
+        st.session_state["thread_id"] = uuid.uuid4().hex[:12]
+        st.session_state.pop("run_error", None)
+        run_stream(
+            graph,
+            initial_state(selected["name"], threshold, max_iterations,
+                          real_validate=real_validate,
+                          calls_per_day=calls_per_day or None),
+            current_config(),
+            f"Diagnosing {selected['name'].upper()}…",
+        )
+    c2.caption("Select a row to choose a query. Runtimes are measured; costs below are planner estimates.")
+
+    config = current_config()
+    if config:
+        st.divider()
+        render_run(graph, config)
+
+
+def page_hygiene():
+
+    st.subheader("Index hygiene")
+    st.caption("Unused, duplicate and prefix-redundant indexes from the PostgreSQL "
+               "catalogs. Suggestions only — nothing is executed.")
+
+    result = analyze_index_hygiene()
+    findings = result["findings"]
+    window = result["stats_window_hours"]
+
+    h1, h2, h3 = st.columns(3)
+    h1.metric("Indexes analyzed", result["index_count"])
+    h2.metric("Findings", len(findings))
+    h3.metric("Potentially reclaimable",
+              f"{result['reclaimable_bytes'] / 1024 / 1024:,.0f} MB")
+
+    if window is not None and not result["unused_confident"]:
+        st.warning(f"Statistics only cover {window:.1f} hours — 'unused' findings "
+                   "are hints; verify over a longer window before dropping.")
+
+    if not findings:
+        st.success("No unused, duplicate or redundant indexes found.")
+        st.caption("Tip: Demo tools → Plant bad indexes, to see findings.")
+        return
+
+    st.dataframe(pd.DataFrame([{
+        "Index": f["index"],
+        "Table": f["table"],
+        "Size (MB)": round(f["size_bytes"] / 1024 / 1024, 1),
+        "Scans": f["idx_scan"],
+        "Finding": ", ".join(f["kinds"]),
+        "Why": " ".join(f["reasons"]),
+    } for f in findings]), hide_index=True, width="stretch")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Suggested cleanup (review first)**")
+        st.code("\n".join(f["drop_sql"] for f in findings), language="sql")
+    with c2:
+        st.markdown("**Rollback**")
+        st.code("\n".join(f["recreate_sql"] for f in findings), language="sql")
+
+    st.download_button("⬇ hygiene_report.md", hygiene_markdown(result),
+                       file_name="querydoctor_hygiene_report.md")
+
+
+if mode == "Index hygiene":
+    page_hygiene()
+else:
+    page_single_query()

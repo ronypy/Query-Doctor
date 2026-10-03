@@ -58,7 +58,7 @@ def real_validation_status() -> tuple[bool, str]:
 
 
 def _explain_analyze(cur, sql: str) -> dict:
-    cur.execute("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql)
+    cur.execute("EXPLAIN (ANALYZE, TIMING OFF, BUFFERS, FORMAT JSON) " + sql)
     return cur.fetchone()[0][0]
 
 
@@ -147,7 +147,7 @@ def real_validate(sql: str, index_sql: str, runs: int = 3,
         "index_used": plan_uses_index(after_plan["Plan"], name),
         "actual_size_bytes": actual_size,
         "build_seconds": build_seconds,
-        "method": "EXPLAIN ANALYZE in a rolled-back transaction on the local "
+        "method": "EXPLAIN (ANALYZE, TIMING OFF) in a rolled-back transaction on the local "
                   f"demo DB; median of {runs} warm runs",
     }
 
