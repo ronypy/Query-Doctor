@@ -1,0 +1,582 @@
+{
+  "q03": {
+    "baseline_cost": 188715.21,
+    "large_seq_scans": [
+      "orders",
+      "customer"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON customer(c_mktsegment, c_custkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 185426.9,
+        "reduction_pct": 1.742472162153754,
+        "index_used": true,
+        "est_size_bytes": 5439488
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_custkey, o_orderdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 188715.21,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 43540480
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey, o_shippriority)",
+        "valid": true,
+        "error": null,
+        "new_cost": 188715.21,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 52248576
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_shipdate, l_extendedprice, l_discount)",
+        "valid": true,
+        "error": null,
+        "new_cost": 137444.02,
+        "reduction_pct": 27.168552020793662,
+        "index_used": true,
+        "est_size_bytes": 313548800
+      }
+    ],
+    "combined": {
+      "new_cost": 134155.71,
+      "reduction_pct": 28.911024182947415,
+      "indexes_used": {
+        "CREATE INDEX ON customer(c_mktsegment, c_custkey)": true,
+        "CREATE INDEX ON orders(o_custkey, o_orderdate)": false,
+        "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey, o_shippriority)": false,
+        "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_shipdate, l_extendedprice, l_discount)": true
+      }
+    }
+  },
+  "q04": {
+    "baseline_cost": 86843.11,
+    "large_seq_scans": [
+      "orders"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 79142.56,
+        "reduction_pct": 8.867197409213007,
+        "index_used": true,
+        "est_size_bytes": 34832384
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_orderpriority)",
+        "valid": true,
+        "error": null,
+        "new_cost": 79522.56,
+        "reduction_pct": 8.429626714197596,
+        "index_used": true,
+        "est_size_bytes": 54427648
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_orderkey) WHERE l_commitdate < l_receiptdate",
+        "valid": true,
+        "error": null,
+        "new_cost": 86843.11,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 58056704
+      }
+    ],
+    "combined": {
+      "new_cost": 79142.56,
+      "reduction_pct": 8.867197409213007,
+      "indexes_used": {
+        "CREATE INDEX ON orders(o_orderdate)": true,
+        "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_orderpriority)": false,
+        "CREATE INDEX ON lineitem(l_orderkey) WHERE l_commitdate < l_receiptdate": false
+      }
+    }
+  },
+  "q05": {
+    "baseline_cost": 99385.88,
+    "large_seq_scans": [
+      "orders",
+      "customer"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 96225.49,
+        "reduction_pct": 3.1799185155879277,
+        "index_used": true,
+        "est_size_bytes": 34832384
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 96857.49,
+        "reduction_pct": 2.544013294443838,
+        "index_used": true,
+        "est_size_bytes": 43540480
+      },
+      {
+        "sql": "CREATE INDEX ON customer(c_nationkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 98723.13,
+        "reduction_pct": 0.6668452299260217,
+        "index_used": true,
+        "est_size_bytes": 3481600
+      },
+      {
+        "sql": "CREATE INDEX ON supplier(s_nationkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 99385.88,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 229376
+      }
+    ],
+    "combined": {
+      "new_cost": 95562.73,
+      "reduction_pct": 3.846773807305433,
+      "indexes_used": {
+        "CREATE INDEX ON orders(o_orderdate)": true,
+        "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey)": false,
+        "CREATE INDEX ON customer(c_nationkey)": true,
+        "CREATE INDEX ON supplier(s_nationkey)": false
+      }
+    }
+  },
+  "q06": {
+    "baseline_cost": 159067.5,
+    "large_seq_scans": [
+      "lineitem"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 130595.74,
+        "reduction_pct": 17.899168591949955,
+        "index_used": true,
+        "est_size_bytes": 139354112
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipdate, l_discount, l_quantity)",
+        "valid": true,
+        "error": null,
+        "new_cost": 141357.38,
+        "reduction_pct": 11.133713675012178,
+        "index_used": true,
+        "est_size_bytes": 217735168
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipdate, l_discount, l_quantity) INCLUDE (l_extendedprice)",
+        "valid": true,
+        "error": null,
+        "new_cost": 38828.33,
+        "reduction_pct": 75.59002939003882,
+        "index_used": true,
+        "est_size_bytes": 287416320
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_discount, l_shipdate, l_quantity) INCLUDE (l_extendedprice)",
+        "valid": true,
+        "error": null,
+        "new_cost": 69575.77,
+        "reduction_pct": 56.260222861363886,
+        "index_used": true,
+        "est_size_bytes": 287416320
+      }
+    ],
+    "combined": {
+      "new_cost": 38828.33,
+      "reduction_pct": 75.59002939003882,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_shipdate)": false,
+        "CREATE INDEX ON lineitem(l_shipdate, l_discount, l_quantity)": false,
+        "CREATE INDEX ON lineitem(l_shipdate, l_discount, l_quantity) INCLUDE (l_extendedprice)": true,
+        "CREATE INDEX ON lineitem(l_discount, l_shipdate, l_quantity) INCLUDE (l_extendedprice)": false
+      }
+    }
+  },
+  "q10": {
+    "baseline_cost": 184538.29,
+    "large_seq_scans": [
+      "lineitem",
+      "orders",
+      "customer"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 176807.54,
+        "reduction_pct": 4.189238992081264,
+        "index_used": true,
+        "est_size_bytes": 34832384
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 176971.54,
+        "reduction_pct": 4.100368546820283,
+        "index_used": true,
+        "est_size_bytes": 43540480
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_returnflag, l_orderkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 184538.29,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 191610880
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_returnflag, l_extendedprice, l_discount)",
+        "valid": true,
+        "error": null,
+        "new_cost": 113195.46,
+        "reduction_pct": 38.66017724560036,
+        "index_used": true,
+        "est_size_bytes": 296124416
+      }
+    ],
+    "combined": {
+      "new_cost": 105464.71,
+      "reduction_pct": 42.84941623768162,
+      "indexes_used": {
+        "CREATE INDEX ON orders(o_orderdate)": true,
+        "CREATE INDEX ON orders(o_orderdate) INCLUDE (o_custkey)": false,
+        "CREATE INDEX ON lineitem(l_returnflag, l_orderkey)": false,
+        "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_returnflag, l_extendedprice, l_discount)": true
+      }
+    }
+  },
+  "q12": {
+    "baseline_cost": 198577.83,
+    "large_seq_scans": [
+      "orders",
+      "lineitem"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_receiptdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 170236.14,
+        "reduction_pct": 14.272333422114631,
+        "index_used": true,
+        "est_size_bytes": 139354112
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipmode, l_receiptdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 151684.83,
+        "reduction_pct": 23.614418588419465,
+        "index_used": true,
+        "est_size_bytes": 182902784
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipmode, l_receiptdate) INCLUDE (l_orderkey, l_commitdate, l_shipdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 51544.52,
+        "reduction_pct": 74.04316483869322,
+        "index_used": true,
+        "est_size_bytes": 322256896
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_receiptdate) WHERE l_commitdate < l_receiptdate AND l_shipdate < l_commitdate",
+        "valid": true,
+        "error": null,
+        "new_cost": 198577.83,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 15482880
+      }
+    ],
+    "combined": {
+      "new_cost": 51544.52,
+      "reduction_pct": 74.04316483869322,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_receiptdate)": false,
+        "CREATE INDEX ON lineitem(l_shipmode, l_receiptdate)": false,
+        "CREATE INDEX ON lineitem(l_shipmode, l_receiptdate) INCLUDE (l_orderkey, l_commitdate, l_shipdate)": true,
+        "CREATE INDEX ON lineitem(l_receiptdate) WHERE l_commitdate < l_receiptdate AND l_shipdate < l_commitdate": false
+      }
+    }
+  },
+  "q14": {
+    "baseline_cost": 146331.19,
+    "large_seq_scans": [
+      "lineitem",
+      "part"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipdate)",
+        "valid": true,
+        "error": null,
+        "new_cost": 108379.56,
+        "reduction_pct": 25.93543454406405,
+        "index_used": true,
+        "est_size_bytes": 139354112
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipdate) INCLUDE (l_partkey, l_extendedprice, l_discount)",
+        "valid": true,
+        "error": null,
+        "new_cost": 10209.42,
+        "reduction_pct": 93.02307320811099,
+        "index_used": true,
+        "est_size_bytes": 278708224
+      },
+      {
+        "sql": "CREATE INDEX ON part(p_partkey) INCLUDE (p_type)",
+        "valid": true,
+        "error": null,
+        "new_cost": 144849.77,
+        "reduction_pct": 1.0123747370605083,
+        "index_used": true,
+        "est_size_bytes": 10739712
+      }
+    ],
+    "combined": {
+      "new_cost": 8728.0,
+      "reduction_pct": 94.0354479451715,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_shipdate)": false,
+        "CREATE INDEX ON lineitem(l_shipdate) INCLUDE (l_partkey, l_extendedprice, l_discount)": true,
+        "CREATE INDEX ON part(p_partkey) INCLUDE (p_type)": true
+      }
+    }
+  },
+  "q17": {
+    "baseline_cost": 1949150.23,
+    "large_seq_scans": [
+      "lineitem",
+      "part",
+      "lineitem"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_partkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 184577.42,
+        "reduction_pct": 90.5303646091969,
+        "index_used": true,
+        "est_size_bytes": 139354112
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_partkey) INCLUDE (l_quantity, l_extendedprice)",
+        "valid": true,
+        "error": null,
+        "new_cost": 61399.03,
+        "reduction_pct": 96.84995907165145,
+        "index_used": true,
+        "est_size_bytes": 252575744
+      },
+      {
+        "sql": "CREATE INDEX ON part(p_brand, p_container)",
+        "valid": true,
+        "error": null,
+        "new_cost": 1943829.65,
+        "reduction_pct": 0.2729692107929554,
+        "index_used": true,
+        "est_size_bytes": 8413184
+      }
+    ],
+    "combined": {
+      "new_cost": 56078.45,
+      "reduction_pct": 97.1229282824444,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_partkey)": false,
+        "CREATE INDEX ON lineitem(l_partkey) INCLUDE (l_quantity, l_extendedprice)": true,
+        "CREATE INDEX ON part(p_brand, p_container)": true
+      }
+    }
+  },
+  "q18": {
+    "baseline_cost": 672756.02,
+    "large_seq_scans": [
+      "orders",
+      "customer"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_quantity)",
+        "valid": true,
+        "error": null,
+        "new_cost": 397996.2,
+        "reduction_pct": 40.84093071363375,
+        "index_used": true,
+        "est_size_bytes": 217735168
+      },
+      {
+        "sql": "CREATE INDEX ON orders(o_custkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 672756.02,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 34832384
+      }
+    ],
+    "combined": {
+      "new_cost": 397996.2,
+      "reduction_pct": 40.84093071363375,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_orderkey) INCLUDE (l_quantity)": true,
+        "CREATE INDEX ON orders(o_custkey)": false
+      }
+    }
+  },
+  "q19": {
+    "baseline_cost": 184985.21,
+    "large_seq_scans": [
+      "lineitem",
+      "part"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON part(p_brand, p_container, p_size)",
+        "valid": true,
+        "error": null,
+        "new_cost": 179108.82,
+        "reduction_pct": 3.176680989793716,
+        "index_used": true,
+        "est_size_bytes": 9576448
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_partkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 31654.43,
+        "reduction_pct": 82.8881292726051,
+        "index_used": true,
+        "est_size_bytes": 139354112
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_shipinstruct, l_shipmode, l_partkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 10663.94,
+        "reduction_pct": 94.23524723949552,
+        "index_used": true,
+        "est_size_bytes": 287416320
+      }
+    ],
+    "combined": {
+      "new_cost": 7126.74,
+      "reduction_pct": 96.14740010836542,
+      "indexes_used": {
+        "CREATE INDEX ON part(p_brand, p_container, p_size)": true,
+        "CREATE INDEX ON lineitem(l_partkey)": false,
+        "CREATE INDEX ON lineitem(l_shipinstruct, l_shipmode, l_partkey)": true
+      }
+    }
+  },
+  "q20": {
+    "baseline_cost": 1790823004.46,
+    "large_seq_scans": [
+      "part",
+      "lineitem"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON lineitem(l_partkey, l_suppkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 94474.36,
+        "reduction_pct": 99.99472452834453,
+        "index_used": true,
+        "est_size_bytes": 174186496
+      },
+      {
+        "sql": "CREATE INDEX ON lineitem(l_partkey, l_suppkey, l_shipdate) INCLUDE (l_quantity)",
+        "valid": true,
+        "error": null,
+        "new_cost": 94474.36,
+        "reduction_pct": 99.99472452834453,
+        "index_used": true,
+        "est_size_bytes": 252575744
+      },
+      {
+        "sql": "CREATE INDEX ON part(p_name)",
+        "valid": true,
+        "error": null,
+        "new_cost": 1790823004.46,
+        "reduction_pct": 0.0,
+        "index_used": false,
+        "est_size_bytes": 13058048
+      }
+    ],
+    "combined": {
+      "new_cost": 94474.36,
+      "reduction_pct": 99.99472452834453,
+      "indexes_used": {
+        "CREATE INDEX ON lineitem(l_partkey, l_suppkey)": false,
+        "CREATE INDEX ON lineitem(l_partkey, l_suppkey, l_shipdate) INCLUDE (l_quantity)": true,
+        "CREATE INDEX ON part(p_name)": false
+      }
+    }
+  },
+  "q02": {
+    "baseline_cost": 57894.73,
+    "large_seq_scans": [
+      "part",
+      "partsupp"
+    ],
+    "candidates": [
+      {
+        "sql": "CREATE INDEX ON partsupp(ps_partkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 55715.12,
+        "reduction_pct": 3.7647813540196156,
+        "index_used": true,
+        "est_size_bytes": 18579456
+      },
+      {
+        "sql": "CREATE INDEX ON part(p_size)",
+        "valid": true,
+        "error": null,
+        "new_cost": 55863.09,
+        "reduction_pct": 3.5091967783596307,
+        "index_used": true,
+        "est_size_bytes": 4644864
+      },
+      {
+        "sql": "CREATE INDEX ON supplier(s_nationkey)",
+        "valid": true,
+        "error": null,
+        "new_cost": 57757.94,
+        "reduction_pct": 0.23627366428688906,
+        "index_used": true,
+        "est_size_bytes": 229376
+      }
+    ],
+    "combined": {
+      "new_cost": 53546.68,
+      "reduction_pct": 7.510269069395441,
+      "indexes_used": {
+        "CREATE INDEX ON partsupp(ps_partkey)": true,
+        "CREATE INDEX ON part(p_size)": true,
+        "CREATE INDEX ON supplier(s_nationkey)": true
+      }
+    }
+  }
+}

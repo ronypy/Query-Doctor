@@ -1,0 +1,11 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS hypopg;
+
+CREATE ROLE qd_agent LOGIN PASSWORD 'qd_agent';
+
+GRANT CONNECT ON DATABASE tpch TO qd_agent;
+GRANT USAGE ON SCHEMA public TO qd_agent;
+GRANT pg_read_all_stats TO qd_agent;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT ON TABLES TO qd_agent;

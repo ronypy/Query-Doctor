@@ -1,0 +1,19 @@
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Large / generated data
+data/*.csv
+data/*.duckdb
+data/checkpoints.db*
+data/llm_cache/
+
+# Generated outputs
+output/
+
+.DS_Store
