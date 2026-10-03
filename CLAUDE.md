@@ -233,29 +233,58 @@ After each major phase, report: files created/modified, commands run, test resul
 
 ---
 
-## Nice-to-have phase (planned 2026-10-03)
+## Nice-to-have phase (implemented 2026-10-03)
 
-Full plan: **`docs/nice_to_have_plan.md`**. Scope is every nice-to-have from plan.md except sponsor tracks, plus a new **index storage budget, default 350 MB** (on-disk index size, not RAM). Order of work:
+The plan is in `docs/nice_to_have_plan.md`. **Storage budget: skipped at the user's request** (could later plug into the critic and the greedy loop). Sponsor tracks are out of scope. All of the following is done, tested and committed.
 
-0. Prep: git init, `scripts/reset_demo.py`, `scripts/plant_bad_indexes.py`, UI "Reset demo" button.
-1. **Storage budget:**
-   - `STORAGE_BUDGET_MB=350`.
-   - The critic accepts only used, ≥ threshold **and ≤ budget** candidates. This is enforced in code, never by the LLM.
-   - An over-budget winner → deterministic retry feedback ("propose a smaller index").
-   - The human_approval node re-checks size as a second guard.
-   - Workload mode: the sum of the selected set must be ≤ budget.
-2. **Real validation:** admin connection, local DB only, `ENABLE_REAL_VALIDATION=1`.
-   - In one transaction: EXPLAIN ANALYZE before (median of 3) → CREATE INDEX → actual size → EXPLAIN ANALYZE after → **ROLLBACK**.
-   - An advisory lock serializes runs. Runs after approval when toggled.
-3. **Monthly savings ($):** computed only from measured real-validation runtimes.
-   - Assumptions `CALLS_PER_DAY` and `VCPU_HOUR_PRICE_USD` are stated in the report.
-   - Index storage cost is shown too.
-4. **Index hygiene:** `tools/hygiene.py` finds unused (idx_scan = 0, non-constraint), duplicate and prefix-redundant indexes. It suggests DROP + recreate SQL as report only, and shows reclaimable space.
-5. **Workload mode:** `agent/workload_graph.py`.
-   - Top-N queries → LLM proposal per query → safety check → candidate × query HypoPG benefit matrix (calls × cost drop).
-   - **Greedy marginal-benefit-per-MB selection under the budget**, with all selected indexes present, so redundant indexes score ~0.
-   - Then approval → combined migration.
-6. **MCP server:** `querydoctor/mcp_server.py` (FastMCP, stdio).
-   - Tools: list_slow_queries, explain_query, what_if_index, recommend_indexes (stops at the approval interrupt and returns thread_id), approve_recommendation, index_hygiene, recommend_workload.
+- **Git:** repo `https://github.com/ronypy/Query-Doctor.git` on branch `main`. `manual_test.docx` is the user's file and stays untracked; `~$*` lock files are ignored.
+- **Demo tools:**
+  - `scripts/reset_demo.py` (local-only guard) drops every non-constraint index, resets pg_stat_statements and pg_stat, and reruns the workload, in about 25–45 s.
+  - `scripts/plant_bad_indexes.py` creates `qd_demo_*` duplicate, redundant and unused indexes.
+  - `scripts/run_workload.py` is now a `run_workload()` function.
+  - The UI sidebar has a "Demo tools" expander with both actions.
+- **Real validation** (`tools/real_validate.py`): needs `ENABLE_REAL_VALIDATION=1` (added to `.env`) and a localhost admin URL.
+  - Admin connection with `conn.transaction(force_rollback=True)` and `pg_advisory_xact_lock`.
+  - Runs `EXPLAIN (ANALYZE, TIMING OFF)`: warm-up + N runs before → CREATE INDEX (`qd_rv_<hash>`) → `pg_relation_size` → N runs after → ROLLBACK. A final check confirms no index remains.
+  - `real_validate_set(queries, index_sqls)` handles many indexes × many queries; `real_validate()` handles a single index.
+  - **TIMING OFF matters:** per-node timing inflated Q18 from about 3.4 s to 5.7 s.
+  - Q14 measured 254 ms → 49 ms (5.2×). Actual size 232 MB vs HypoPG's 266 MB estimate. Build takes about 4–7 s.
+  - In the graph: approved → `real_validate` (when `state.real_validate` is set) → report. CLI flag `--real-validate`; UI checkbox.
+- **Savings** (`savings.py`): computed ONLY from measured runtimes.
+  - Saved ms × calls/day × 30 / 3600 × `VCPU_HOUR_PRICE_USD` (0.04), minus storage at `STORAGE_GB_MONTH_USD` (0.10).
+  - **Signed:** regressions count as a cost.
+  - `classify_change()` uses a ±15% noise band.
+  - calls/day comes from `CALLS_PER_DAY`, the UI input or CLI `--calls-per-day`; otherwise it's derived from pg_stat_statements and flagged unreliable when the window is under 24 h.
+- **Index hygiene** (`tools/hygiene.py`): `analyze_index_hygiene()` finds unused (idx_scan = 0), duplicate (same signature) and prefix-redundant B-tree indexes.
+  - Protected (never suggested): constraint-backing and unique indexes.
+  - Output: DROP CONCURRENTLY and recreate SQL, reclaimable MB, and a short-window warning.
+  - Available in the UI "Index hygiene" page and via CLI `python -m querydoctor.tools.hygiene`.
+- **Workload mode:**
+  - `workload.py` is deterministic:
+    - `collect_workload` → `build_candidate_pool` (safety + dedup) → `evaluate_matrix` (each candidate × each query)
+    - → `greedy_select`: picks the max marginal gain of Σ calls × planner cost with all selected indexes present, so redundant ones score ~0. It stops at `max_indexes` (3) or `min_gain_pct` (2%), with an optional size penalty in points per GB.
+  - `agent/workload_graph.py`: collect → propose_all (one LLM call per query, 2 workers, 4 attempts with backoff for Groq 503s) → evaluate → select → human_approval → real_validate? → report.
+  - `workload_report.py`: combined migration and rollback with unique `qd_` names, per-query table, greedy steps, not-selected reasons, real-validation verdicts and savings counting only queries whose plan used a new index.
+  - CLI: `python -m querydoctor.agent.workload_graph --top 6 [--real-validate]`.
+  - UI "Workload" page with a candidate × query heatmap. It was rendered and checked visually via vl-convert.
+  - Live run: −31.5% estimated workload cost. Measured Q18 5.0× and Q19 18.7× faster; Q3 and Q10 about 0.9× (the planner's estimate was wrong, and real validation caught it).
+- **HypoPG crash, IMPORTANT:** multi-column **partial** hypothetical indexes (e.g. `lineitem(l_returnflag, l_linestatus) WHERE l_shipdate <= ...`) **segfault the PostgreSQL backend** under HypoPG 1.4.3 while planning Q18.
+  - The whole instance restarts and **pg_stat_statements is wiped**, so run `reset_demo` afterwards.
+  - Fix: safety rejects ALL partial indexes, plus INCLUDE columns that repeat key columns.
+  - Defense in depth: `compare_costs` and the workload engine reconnect after a lost connection (`db.wait_for_db`) and exclude the crashed candidate.
+- **LLM record/replay cache** (`agent/llm.py`, `CachedLLM`):
+  - Every response is saved to `data/llm_cache/<sha256>.json`.
+  - With `DEMO_MODE=1`, identical prompts replay without calling the API.
+  - **Groq free tier: 200k tokens per day.** Development hit the 429 limit. Record the demo runs once, then present with DEMO_MODE=1.
+- **MCP server** (`querydoctor/mcp_server.py`, mcp SDK **2.3, where `FastMCP` is renamed `MCPServer`**):
+  - Tools: list_slow_queries, explain_query, what_if_index, index_hygiene, recommend_indexes / recommend_workload (stop at approval and return thread_id), approve_recommendation.
+  - Blocking work runs via `anyio.to_thread`.
+  - Verified in-process (`mcp.client.Client(mcp_server.mcp)`) and as a real stdio subprocess.
+  - Setup instructions in `docs/mcp.md`.
+- **Tests:** 76 passed, 1 skipped (live LLM).
+  - New files: test_real_validate, test_hygiene, test_workload, test_llm_cache, test_mcp_server.
 
-Status: PLANNED, not started.
+### Remaining / next
+- Record demo runs (Q14, Q12, Q19, workload) with the LLM once the Groq quota resets, then rehearse with DEMO_MODE=1.
+- Check the UI by eye in a browser (Checkpoint 4).
+- README + Devpost write-up. Optional: storage budget, FastAPI.

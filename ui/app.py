@@ -759,8 +759,10 @@ def page_workload():
 
     errors = values.get("proposal_errors") or {}
     if errors:
-        st.warning("LLM proposal failed for " + ", ".join(errors) +
-                   " (provider error); those queries had no candidates of their own.")
+        st.warning("LLM proposal failed for " + ", ".join(q.upper() for q in errors)
+                   + "; those queries had no candidates of their own. Provider "
+                   "error: " + next(iter(errors.values()))[:220]
+                   + " — tip: DEMO_MODE=1 replays recorded LLM responses.")
 
     payload = pending_interrupt(wgraph, config)
     report = values.get("report")

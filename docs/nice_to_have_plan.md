@@ -1,5 +1,7 @@
 # Nice-to-have features: implementation plan
 
+> **Status (2026-10-03):** steps 0 and 2–6 are implemented. Step 1 (storage budget) was skipped at the user's request. See CLAUDE.md for details. Deviation: partial indexes are now rejected entirely, because they crash PostgreSQL under HypoPG 1.4.3.
+
 Scope: every nice-to-have from `plan.md` §0 and §9 **except sponsor-track integration**, plus a new **index storage budget** (default 350 MB).
 
 Order of work: the budget first, because every other feature uses it. Each step ends with tests and a checkpoint before the next one starts.
