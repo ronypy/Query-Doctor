@@ -21,6 +21,11 @@ from querydoctor.agent.graph import (
     initial_state,
     run_config,
 )
+from querydoctor.agent.workload_graph import (
+    build_workload_graph,
+    initial_workload_state,
+    workload_config,
+)
 from querydoctor.config import get_settings
 from querydoctor.db import get_conn
 from querydoctor.tools.hygiene import analyze_index_hygiene, hygiene_markdown
@@ -42,6 +47,10 @@ NODE_ICONS = {
     "human_approval": "🙋",
     "real_validate": "⏱️",
     "report": "📄",
+    "collect": "📋",
+    "propose_all": "💡",
+    "evaluate": "🧪",
+    "select": "🧮",
 }
 
 # Status palette (dataviz reference): fixed roles, always paired with a label.
@@ -60,6 +69,16 @@ STATUS_COLORS = {
 @st.cache_resource
 def get_graph():
     return build_graph(get_checkpointer("sqlite"))
+
+
+@st.cache_resource
+def get_workload_graph():
+    return build_workload_graph(get_checkpointer("sqlite"))
+
+
+# Sequential blue ramp (dataviz reference), light = near zero.
+SEQ_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
+NOT_USED_GRAY = "#e9e8e4"
 
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -492,7 +511,7 @@ else:
     st.error(f"Database unavailable: {status['error']} — is `docker compose up -d` running?")
     st.stop()
 
-PAGES = ["Single query", "Index hygiene"]
+PAGES = ["Single query", "Workload", "Index hygiene"]
 mode = st.radio("Mode", PAGES, horizontal=True, key="mode",
                 label_visibility="collapsed")
 
@@ -597,7 +616,212 @@ def page_hygiene():
                        file_name="querydoctor_hygiene_report.md")
 
 
+def render_heatmap(values: dict):
+
+    pool = values.get("pool") or []
+    queries = [q["name"] for q in values.get("queries", [])]
+    selected = {s["sql"] for s in (values.get("selection") or {}).get("selected", [])}
+
+    rows = []
+    for i, c in enumerate(pool, start=1):
+        label = ("✓ " if c["sql"] in selected else "  ") + f"#{i} " + short_index(c["sql"])[:60]
+        for q in queries:
+            v = (c.get("per_query") or {}).get(q, {})
+            used = bool(v.get("used"))
+            pct = max(0.0, v.get("reduction_pct", 0.0)) if used else 0.0
+            rows.append({"candidate": label, "query": q.upper(), "used": used,
+                         "reduction": pct, "index": c["sql"],
+                         "text": f"{pct:.0f}%" if used and pct >= 1 else ""})
+
+    if not rows:
+        st.caption("No candidates evaluated yet.")
+        return
+
+    df = pd.DataFrame(rows)
+    order = list(dict.fromkeys(df["candidate"]))
+    base = alt.Chart(df).encode(
+        x=alt.X("query:N", title=None, sort=[q.upper() for q in queries],
+                axis=alt.Axis(orient="top", labelAngle=0)),
+        y=alt.Y("candidate:N", title=None, sort=order,
+                axis=alt.Axis(labelLimit=420)),
+    )
+    used_cells = base.transform_filter("datum.used").mark_rect(
+        cornerRadius=3, stroke="white", strokeWidth=2).encode(
+        color=alt.Color("reduction:Q", title="Est. reduction %",
+                        scale=alt.Scale(domain=[0, 100], range=SEQ_BLUE),
+                        legend=alt.Legend(orient="top")),
+        tooltip=[alt.Tooltip("index:N", title="Index"),
+                 alt.Tooltip("query:N", title="Query"),
+                 alt.Tooltip("reduction:Q", title="Est. planner cost reduction %",
+                             format=".1f")],
+    )
+    unused_cells = base.transform_filter("!datum.used").mark_rect(
+        cornerRadius=3, stroke="white", strokeWidth=2, color=NOT_USED_GRAY).encode(
+        tooltip=[alt.Tooltip("index:N", title="Index"),
+                 alt.Tooltip("query:N", title="Query"),
+                 alt.Tooltip("used:N", title="Used by planner")],
+    )
+    labels = base.mark_text(fontSize=11).encode(
+        text="text:N",
+        color=alt.condition("datum.reduction > 45", alt.value("white"),
+                            alt.value("#0b0b0b")),
+    )
+    st.altair_chart(
+        (unused_cells + used_cells + labels).properties(height=max(160, 34 * len(order))),
+        width="stretch",
+    )
+    st.caption("Each candidate on its own, per query (HypoPG planner estimate). "
+               "Gray = planner did not use the index. ✓ = selected by the greedy optimizer.")
+
+
+def render_workload_approval(graph, config, payload: dict):
+
+    with st.container(border=True):
+        st.subheader("🙋 Approve this index set for the workload?")
+        st.dataframe(pd.DataFrame([{
+            "Index": s["sql"],
+            "Marginal est. gain": f"{s['marginal_gain_pct']:.1f}%",
+            "Est. size": fmt_mb(s.get("est_size_bytes")),
+            "Used by": ", ".join(q.upper() for q in s["used_by"]),
+        } for s in payload["selected"]]), hide_index=True, width="stretch")
+
+        c1, c2 = st.columns(2)
+        c1.metric("Est. workload planner cost", f"-{payload['workload_reduction_pct']:.1f}%")
+        c2.metric("Total est. size", fmt_mb(payload["total_size_bytes"]))
+
+        feedback = st.text_area(
+            "Feedback for the agent (used if you reject)",
+            placeholder="e.g. Avoid covering indexes on lineitem",
+            key=f"wl_feedback_{st.session_state['wl_thread_id']}",
+        )
+        a, r, _ = st.columns([1, 1, 3])
+        if a.button("✅ Approve set", type="primary", key="wl_approve"):
+            run_stream(graph, Command(resume={"approved": True}), config,
+                       "Generating workload report…")
+        if r.button("❌ Reject set", key="wl_reject"):
+            run_stream(graph,
+                       Command(resume={"approved": False, "feedback": feedback or None}),
+                       config,
+                       "Re-proposing with your feedback…" if feedback else "Finishing…")
+
+
+def page_workload():
+
+    wgraph = get_workload_graph()
+
+    st.subheader("Workload mode")
+    st.caption("Optimizes the top slow queries together: the LLM proposes candidates "
+               "per query, HypoPG measures every candidate on every query, and a "
+               "deterministic greedy optimizer picks the set with the largest "
+               "marginal reduction of total workload planner cost (Σ calls × cost).")
+
+    c1, c2, c3, c4 = st.columns(4)
+    top_n = c1.slider("Top N queries", 3, 10, 6)
+    max_indexes = c2.slider("Max indexes", 1, 5, 3)
+    min_gain = c3.number_input("Min marginal gain %", 0.5, 20.0, 2.0, 0.5)
+    penalty = c4.number_input("Size penalty (pts / GB)", 0.0, 50.0, 0.0, 1.0,
+                              help="Subtracted from a candidate's gain per GB of "
+                                   "index, to model write/storage overhead.")
+
+    if st.button("🧮 Optimize workload", type="primary", key="wl_start"):
+        st.session_state["wl_thread_id"] = "wl-" + uuid.uuid4().hex[:10]
+        st.session_state.pop("run_error", None)
+        run_stream(
+            wgraph,
+            initial_workload_state(top_n, max_indexes, min_gain, penalty,
+                                   real_validate=real_validate,
+                                   calls_per_day=calls_per_day or None),
+            workload_config(st.session_state["wl_thread_id"]),
+            f"Optimizing the top {top_n} queries…",
+        )
+
+    thread = st.session_state.get("wl_thread_id")
+    if not thread:
+        return
+
+    config = workload_config(thread)
+    values = wgraph.get_state(config).values
+    if not values:
+        return
+
+    st.divider()
+    if st.session_state.get("run_error"):
+        st.error(f"The agent stopped with an error: {st.session_state['run_error']}")
+
+    sel = values.get("selection") or {}
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Queries", len(values.get("queries", [])))
+    m2.metric("Candidates evaluated", len(values.get("pool") or []))
+    m3.metric("Indexes selected", len(sel.get("selected", [])) if sel else "–")
+    m4.metric("Est. workload cost reduction",
+              f"{sel['workload_reduction_pct']:.1f}%" if sel else "–",
+              help="HypoPG planner estimate, not runtime.")
+
+    errors = values.get("proposal_errors") or {}
+    if errors:
+        st.warning("LLM proposal failed for " + ", ".join(errors) +
+                   " (provider error); those queries had no candidates of their own.")
+
+    payload = pending_interrupt(wgraph, config)
+    report = values.get("report")
+    if payload:
+        render_workload_approval(wgraph, config, payload)
+    elif report:
+        if report["outcome"] == "approved":
+            st.success(f"✅ Approved — migration creates {len(report['index_names'])} index(es).")
+        elif report["outcome"] == "rejected":
+            st.warning("❌ Index set rejected — no migration generated.")
+        else:
+            st.info("⚖️ No index set reduced the workload cost enough.")
+
+    t_trace, t_matrix, t_select, t_report = st.tabs(
+        ["Agent trace", "Candidate × query matrix", "Selection", "Report"])
+
+    with t_trace:
+        for entry in values.get("trace", []):
+            st.markdown(f"{NODE_ICONS.get(entry['node'], '•')} **{entry['node']}** — {entry['message']}")
+
+    with t_matrix:
+        render_heatmap(values)
+
+    with t_select:
+        if sel:
+            st.dataframe(pd.DataFrame([{
+                "Query": q["name"].upper(),
+                "Calls": q["calls"],
+                "Mean runtime (measured)": f"{q['mean_exec_time']:,.0f} ms",
+                "Baseline cost": round(q["baseline_cost"]),
+                "With selected set": round(q["final_cost"]),
+                "Est. reduction": f"{q['reduction_pct']:.1f}%",
+            } for q in sel["per_query"]]), hide_index=True, width="stretch")
+            for step in sel.get("steps", []):
+                st.markdown(f"**Round {step['round']}:** `{step['chosen']}` "
+                            f"+{step['marginal_gain_pct']:.1f}% "
+                            f"(cumulative {step['cumulative_reduction_pct']:.1f}%)")
+            if sel.get("not_selected"):
+                with st.expander(f"Candidates not selected ({len(sel['not_selected'])})"):
+                    for n in sel["not_selected"]:
+                        st.markdown(f"- `{n['sql']}` — {n['reason']}")
+
+    with t_report:
+        if report:
+            d1, d2, d3, _ = st.columns([1, 1, 1, 2])
+            d1.download_button("⬇ report.md", report["markdown"],
+                               file_name="querydoctor_workload_report.md")
+            if report["migration_sql"]:
+                d2.download_button("⬇ migration.sql", report["migration_sql"],
+                                   file_name="querydoctor_workload_migration.sql")
+                d3.download_button("⬇ rollback.sql", report["rollback_sql"],
+                                   file_name="querydoctor_workload_rollback.sql")
+            with st.container(border=True):
+                st.markdown(report["markdown"])
+        else:
+            st.caption("The report appears after approval, rejection, or no-fix.")
+
+
 if mode == "Index hygiene":
     page_hygiene()
+elif mode == "Workload":
+    page_workload()
 else:
     page_single_query()

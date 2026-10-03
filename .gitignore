@@ -17,3 +17,6 @@ data/llm_cache/
 output/
 
 .DS_Store
+
+# Office lock files
+~$*

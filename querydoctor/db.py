@@ -27,3 +27,26 @@ def get_conn(admin: bool = False):
             cur.execute("SET default_transaction_read_only = on")
 
     return conn
+
+
+def wait_for_db(admin: bool = False, timeout_s: float = 60.0) -> None:
+    """
+    Block until the server accepts connections again — used after a backend
+    crash (e.g. a HypoPG segfault makes PostgreSQL restart every backend).
+    """
+
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            get_conn(admin=admin).close()
+            return
+        except psycopg.OperationalError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(1)
+
+
+CRASH_ERROR = ("HypoPG experiment crashed the PostgreSQL backend "
+               "(connection lost); candidate excluded")

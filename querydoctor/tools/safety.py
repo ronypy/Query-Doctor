@@ -116,8 +116,15 @@ def check_index_sql(sql: str, column_map: dict[str, set[str]] | None = None) -> 
             f"(max {MAX_INCLUDE_COLUMNS})"
         )
 
-    if where is not None and where.find(exp.Select):
-        return _reject("Subqueries are not allowed in a partial-index WHERE")
+    if where is not None:
+        # Multi-column partial hypothetical indexes were observed to crash the
+        # PostgreSQL backend (SIGSEGV, whole instance restarts) under
+        # HypoPG 1.4.3 while planning TPC-H Q18, so partial indexes are not
+        # allowed at all.
+        return _reject(
+            "Partial indexes (WHERE ...) are not allowed: they can crash the "
+            "PostgreSQL backend under HypoPG 1.4.3"
+        )
 
     key_columns = []
     for node in key_nodes:
@@ -127,6 +134,16 @@ def check_index_sql(sql: str, column_map: dict[str, set[str]] | None = None) -> 
         key_columns.append(node.this.sql(dialect="postgres"))
 
     include_columns = [n.name.lower() for n in include_nodes]
+
+    plain_keys = {
+        node.this.name.lower() for node in key_nodes
+        if isinstance(node.this, exp.Column)
+    }
+    overlap = sorted(plain_keys & set(include_columns))
+    if overlap:
+        return _reject(
+            f"INCLUDE columns must not repeat key columns: {', '.join(overlap)}"
+        )
 
     referenced = set()
     for node in key_nodes:

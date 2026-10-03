@@ -35,10 +35,19 @@ def test_savings_formula():
     assert s["monthly_net_savings_usd"] == pytest.approx(0.7333, rel=1e-3)
 
 
-def test_savings_never_negative_time():
+def test_regression_counts_as_negative_savings():
     s = estimate_monthly_savings(50, 80, 1000, vcpu_hour_usd=0.04,
                                  storage_gb_month_usd=0.1)
-    assert s["saved_ms_per_call"] == 0
+    assert s["saved_ms_per_call"] == pytest.approx(-30)
+    assert s["monthly_compute_savings_usd"] < 0
+
+
+def test_classify_change():
+    from querydoctor.savings import classify_change
+    assert classify_change(1000, 200, True) == "faster"
+    assert classify_change(1000, 1100, True) == "no_change"
+    assert classify_change(1000, 1300, True) == "regression"
+    assert classify_change(1000, 200, False) == "not_used"
 
 
 def test_no_savings_without_measured_runtime():

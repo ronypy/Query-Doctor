@@ -15,7 +15,6 @@ COLUMNS = {
     "create index on lineitem (l_shipdate, l_discount, l_quantity);",
     "CREATE INDEX idx ON public.lineitem USING btree (l_shipdate DESC)",
     "CREATE INDEX ON lineitem (l_shipdate) INCLUDE (l_extendedprice)",
-    "CREATE INDEX ON orders (o_orderdate) WHERE o_orderdate >= DATE '1994-01-01'",
     "CREATE INDEX ON lineitem USING brin (l_shipdate)",
 ])
 def test_valid_index_sql_accepted(sql):
@@ -35,13 +34,15 @@ def test_valid_index_sql_accepted(sql):
     ("CREATE INDEX ON nope (a)", "Unknown table"),
     ("CREATE INDEX ON lineitem (l_bogus)", "Unknown column"),
     ("CREATE INDEX ON lineitem (l_shipdate) INCLUDE (l_bogus)", "Unknown column"),
-    ("CREATE INDEX ON lineitem (l_shipdate) WHERE l_bogus > 1", "Unknown column"),
+    ("CREATE INDEX ON lineitem (l_shipdate) WHERE l_quantity > 1", "Partial indexes"),
+    ("CREATE INDEX ON orders (o_orderdate) WHERE o_orderdate >= DATE '1994-01-01'", "Partial indexes"),
+    ("CREATE INDEX ON lineitem (l_shipdate, l_discount) INCLUDE (l_discount)", "must not repeat"),
     ("CREATE INDEX ON lineitem (l_orderkey, l_partkey, l_shipdate, l_discount, l_quantity)",
      "Too many key columns"),
     ("CREATE UNIQUE INDEX ON lineitem (l_shipdate)", "UNIQUE"),
     ("CREATE INDEX ON lineitem USING gin (l_comment)", "not allowed"),
     ("CREATE INDEX ON other.lineitem (l_shipdate)", "schema public"),
-    ("CREATE INDEX ON lineitem (l_shipdate) WHERE l_orderkey IN (SELECT 1)", "Subqueries"),
+    ("CREATE INDEX ON lineitem (l_shipdate) WHERE l_orderkey IN (SELECT 1)", "Partial indexes"),
     ("", "Empty"),
 ])
 def test_unsafe_sql_rejected(sql, reason_part):

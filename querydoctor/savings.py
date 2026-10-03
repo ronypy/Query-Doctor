@@ -4,7 +4,7 @@ Monthly savings estimate.
 Honesty rule: computed ONLY from measured runtimes (real validation
 before/after EXPLAIN ANALYZE medians) — never from planner cost.
 
-    saved_seconds_per_call = (before_ms - after_ms) / 1000
+    saved_seconds_per_call = (before_ms - after_ms) / 1000   (negative = regression)
     monthly_cpu_hours      = saved_seconds_per_call × calls_per_day × 30 / 3600
     monthly_compute_usd    = monthly_cpu_hours × vcpu_hour_usd
     monthly_storage_usd    = index_size_GB × storage_gb_month_usd
@@ -73,7 +73,8 @@ def estimate_monthly_savings(
     if storage_gb_month_usd is None:
         storage_gb_month_usd = settings.storage_gb_month_usd
 
-    saved_s_per_call = max(0.0, (before_ms - after_ms) / 1000)
+    # Signed: a regression (after > before) counts as a cost, not as zero.
+    saved_s_per_call = (before_ms - after_ms) / 1000
     monthly_calls = calls_per_day * DAYS_PER_MONTH
     monthly_cpu_hours = saved_s_per_call * monthly_calls / 3600
 
@@ -128,3 +129,28 @@ def savings_for_state(state: dict) -> dict | None:
     result["reliable"] = derived is None or derived["reliable"]
 
     return result
+
+
+NOISE_BAND = 0.15   # ±15%: treat smaller runtime changes as measurement noise
+
+
+def classify_change(before_ms: float, after_ms: float, index_used: bool) -> str:
+    """'faster' | 'no_change' | 'regression' | 'not_used'."""
+    if not index_used:
+        return "not_used"
+    if before_ms <= 0:
+        return "no_change"
+    ratio = after_ms / before_ms
+    if ratio < 1 - NOISE_BAND:
+        return "faster"
+    if ratio > 1 + NOISE_BAND:
+        return "regression"
+    return "no_change"
+
+
+CHANGE_LABELS = {
+    "faster": "faster",
+    "no_change": "≈ no change (within ±15% noise)",
+    "regression": "REGRESSION — slower with the new index; planner estimate was wrong",
+    "not_used": "no new index used; difference is noise",
+}

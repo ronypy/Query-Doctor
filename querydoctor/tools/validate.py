@@ -1,6 +1,6 @@
 import psycopg
 
-from querydoctor.db import get_conn
+from querydoctor.db import CRASH_ERROR, get_conn, wait_for_db
 
 from querydoctor.tools.explain import (
     explain_query,
@@ -108,6 +108,7 @@ def compare_costs(
         index_sqls = [index_sqls]
 
     owns_connection = conn is None
+    extra_conns = []
 
     if conn is None:
         conn = get_conn()
@@ -177,9 +178,17 @@ def compare_costs(
                 )
             except psycopg.Error as e:
                 candidate["valid"] = False
-                candidate["error"] = (
-                    "HypoPG/EXPLAIN failed: " + str(e).split("\n")[0]
-                )
+                if conn.closed:
+                    # Backend crashed: wait for recovery, continue on a
+                    # fresh connection (closed by us at the end).
+                    wait_for_db()
+                    conn = get_conn()
+                    extra_conns.append(conn)
+                    candidate["error"] = CRASH_ERROR
+                else:
+                    candidate["error"] = (
+                        "HypoPG/EXPLAIN failed: " + str(e).split("\n")[0]
+                    )
                 continue
 
             index = run["indexes"][0]
@@ -250,7 +259,10 @@ def compare_costs(
     finally:
 
         try:
-            reset_hypothetical(conn)
+            if not conn.closed:
+                reset_hypothetical(conn)
         finally:
             if owns_connection:
                 conn.close()
+            for extra in extra_conns:
+                extra.close()

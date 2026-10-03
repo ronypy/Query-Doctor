@@ -14,7 +14,12 @@ from datetime import date
 import sqlglot
 from sqlglot import exp
 
-from querydoctor.savings import savings_for_state
+from querydoctor.savings import (
+    CHANGE_LABELS,
+    NOISE_BAND,
+    classify_change,
+    savings_for_state,
+)
 from querydoctor.tools.safety import check_index_sql
 
 
@@ -34,7 +39,8 @@ def index_name(table: str, columns: list[str]) -> str:
     return name
 
 
-def migration_statement(index_sql: str, column_map: dict | None = None) -> tuple[str, str]:
+def migration_statement(index_sql: str, column_map: dict | None = None,
+                        name: str | None = None) -> tuple[str, str]:
     """
     Turn a validated hypothetical-index statement into
     CREATE INDEX CONCURRENTLY IF NOT EXISTS qd_... ON ...
@@ -45,7 +51,8 @@ def migration_statement(index_sql: str, column_map: dict | None = None) -> tuple
     if not check["ok"]:
         raise ValueError(f"Refusing to build migration: {check['reason']}")
 
-    name = index_name(check["table"], check["columns"])
+    if name is None:
+        name = index_name(check["table"], check["columns"])
 
     stmt = sqlglot.parse_one(check["sql"], read="postgres")
     stmt.this.set("this", exp.to_identifier(name))
@@ -203,8 +210,11 @@ def build_report(state: dict) -> dict:
             f"(runs: {', '.join(f'{x:,.1f}' for x in actual['before_runs_ms'])})",
             f"- After: **{actual['after_ms']:,.1f} ms** "
             f"(runs: {', '.join(f'{x:,.1f}' for x in actual['after_runs_ms'])})",
-            f"- **{actual['speedup']:.1f}× faster** "
-            f"({actual['runtime_reduction_pct']:.1f}% lower execution time)",
+            (f"- **{actual['speedup']:.1f}× faster** "
+             f"({actual['runtime_reduction_pct']:.1f}% lower execution time)"
+             if actual["after_ms"] < actual["before_ms"] * (1 - NOISE_BAND) else
+             f"- **{CHANGE_LABELS[classify_change(actual['before_ms'], actual['after_ms'], actual['index_used'])]}** "
+             f"({actual['runtime_reduction_pct']:+.1f}% execution time change)"),
             f"- Real index used by the planner: {'yes' if actual['index_used'] else 'no'}",
             f"- Actual index size: {_fmt_size(actual['actual_size_bytes'])} "
             f"(HypoPG estimate: {_fmt_size(best.get('est_size_bytes'))}); "

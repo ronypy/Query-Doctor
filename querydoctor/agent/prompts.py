@@ -36,10 +36,8 @@ range-filtered columns in composite indexes.
 - Consider covering indexes (INCLUDE the other columns the query reads from that \
 table) so PostgreSQL can use an index-only scan instead of visiting the heap. \
 INCLUDE only columns this query actually references — never "all columns".
-- Use a partial index (WHERE ...) only for predicates that are constant across \
-executions (e.g. comparing two columns, or a fixed status). Do NOT hard-code the \
-query's specific date/number literals in a partial index — those parameters \
-change between calls.
+- Do NOT propose partial indexes (no WHERE clause) — they are rejected \
+automatically. Do not repeat a key column in the INCLUDE list.
 - Do not duplicate an existing index.
 - Do not repeat an index that was already tested (see previous attempts) unless \
 you change it meaningfully (different columns, column order, or INCLUDE list), \
@@ -211,3 +209,52 @@ Earlier attempts:
 {format_history(state.get('history', []))}"""
 
     return [("system", CRITIC_SYSTEM), ("human", user)]
+
+
+WORKLOAD_NOTE = """
+
+Workload mode: your indexes will be evaluated across a WORKLOAD of slow \
+queries (listed below), and a deterministic optimizer picks the few indexes \
+with the largest total benefit. Prefer indexes that also help other queries in \
+the workload (shared join keys, shared filter columns) when that does not hurt \
+this query much. Narrower indexes that serve several queries are valuable."""
+
+
+def _workload_line(q: dict) -> str:
+    scans = [
+        f"Seq Scan on {s['table']}" + (f" filtering {s['filter']}" if s.get("filter") else "")
+        for s in q["plan_summary"]["seq_scans"] if s.get("large_table")
+    ]
+    joins = [j.get("hash_cond") or j.get("merge_cond") for j in q["plan_summary"]["joins"]]
+    joins = [j for j in joins if j]
+    return (f"- {q['name']} ({q['calls']} calls, mean {q['mean_exec_time']:,.0f} ms): "
+            + ("; ".join(scans) or "no large seq scans")
+            + (f"; joins on {', '.join(joins)}" if joins else ""))
+
+
+def workload_propose_messages(query: dict, workload: list[dict],
+                              feedback: str | None = None,
+                              previous: list[str] | None = None) -> list:
+
+    others = "\n".join(_workload_line(q) for q in workload if q["name"] != query["name"])
+
+    extra = ""
+    if previous:
+        extra += ("\n\nIndexes in the previously proposed workload set (rejected by "
+                  "the human reviewer):\n" + "\n".join(f"- {s}" for s in previous))
+    if feedback:
+        extra += f"\n\nHuman reviewer feedback (take it seriously):\n{feedback}"
+
+    user = f"""Query {query['name']} to optimize:
+{query['sql']}
+
+Plan summary (from EXPLAIN with current indexes; costs are planner estimates):
+{_json(query['plan_summary'])}
+
+Tables and existing indexes:
+{format_table_info(query['table_info'])}
+
+Other slow queries in the workload:
+{others or '(none)'}{extra}"""
+
+    return [("system", PROPOSE_SYSTEM + WORKLOAD_NOTE), ("human", user)]
