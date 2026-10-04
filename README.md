@@ -126,6 +126,22 @@ Approve? [y/n] y
 
 The same flow runs in the **Streamlit dashboard**: a live step-by-step trace, cost charts, an approval card, and download buttons for the report, migration and rollback.
 
+### Web UI demo
+
+The screenshots below come from a real run in the Streamlit dashboard on TPC-H **Q18**, the slowest query in the workload. The dashboard connects to PostgreSQL and lists the slowest queries from `pg_stat_statements`. Clicking **Diagnose Q18** starts the agent:
+- **Diagnosis:** it explains the bottleneck (a huge scan and sort driven by a sub-query on `lineitem`).
+- **Proposals:** it suggests two indexes and tests both with HypoPG. The planner ignores one (0.0%). The other, `lineitem(l_orderkey) INCLUDE (l_quantity)`, cuts estimated planner cost by **40.8%**.
+- **Approval and real validation:** after human approval, the index is built for real inside a rolled-back transaction. Measured runtime drops from **5,764 ms to 1,260 ms (4.6× faster)**. The real index is 180 MB against HypoPG's 208 MB estimate.
+- **Savings:** at an assumed 10,000 calls per day, that is about **\$15 per month** for this one query.
+
+The last screenshot shows the generated report. It keeps measured runtimes, planner estimates and the savings assumptions clearly separate, and ends with a ready-to-review `CREATE INDEX CONCURRENTLY` migration and its rollback.
+
+| Diagnosis, metrics and agent trace | Candidates and validation | Generated report |
+|---|---|---|
+| [![Diagnosis and agent trace](result_image/result_1.png)](result_image/result_1.png) | [![Candidates and validation](result_image/result_0.png)](result_image/result_0.png) | [![Generated report](result_image/result_2.png)](result_image/result_2.png) |
+
+*Click a screenshot to view it full size.*
+
 ---
 
 ## Results (TPC-H scale factor 1, local PostgreSQL 16)
