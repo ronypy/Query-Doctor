@@ -129,16 +129,16 @@ The same flow runs in the **Streamlit dashboard**: a live step-by-step trace, co
 ### Web UI demo
 
 The screenshots below come from a real run in the Streamlit dashboard on TPC-H **Q18**, the slowest query in the workload. The dashboard connects to PostgreSQL and lists the slowest queries from `pg_stat_statements`. Clicking **Diagnose Q18** starts the agent:
-- **Diagnosis:** it explains the bottleneck (a huge scan and sort driven by a sub-query on `lineitem`).
-- **Proposals:** it suggests two indexes and tests both with HypoPG. The planner ignores one (0.0%). The other, `lineitem(l_orderkey) INCLUDE (l_quantity)`, cuts estimated planner cost by **40.8%**.
-- **Approval and real validation:** after human approval, the index is built for real inside a rolled-back transaction. Measured runtime drops from **5,764 ms to 1,260 ms (4.6× faster)**. The real index is 180 MB against HypoPG's 208 MB estimate.
-- **Savings:** at an assumed 10,000 calls per day, that is about **\$15 per month** for this one query.
+- **Diagnosis:** the bottleneck is a scan over all 6 million `lineitem` rows feeding a large sort.
+- **Proposals:** the agent tests three indexes with HypoPG. The planner ignores `orders(o_custkey)` (0.0%). `lineitem(l_orderkey) INCLUDE (l_quantity)` cuts the estimated planner cost by **40.8%**.
+- **Approval and real validation:** after human approval, the index is built for real inside a rolled-back transaction. Measured runtime drops from **4,486 ms to 1,170 ms (3.8× faster)**. The real index is 180 MB against HypoPG's 208 MB estimate.
+- **Savings:** at an assumed 10,000 calls per day, that is about **\$11 per month** for this one query.
 
-The last screenshot shows the generated report. It keeps measured runtimes, planner estimates and the savings assumptions clearly separate, and ends with a ready-to-review `CREATE INDEX CONCURRENTLY` migration and its rollback.
+The cost chart compares each candidate's estimated planner cost with the baseline. The dashed line marks the 30% threshold the critic requires. The report keeps measured runtimes, planner estimates and savings assumptions clearly separate, and ends with a ready-to-review `CREATE INDEX CONCURRENTLY` migration and its rollback.
 
-| Diagnosis, metrics and agent trace | Candidates and validation | Generated report |
+| Diagnosis, metrics and agent trace | Candidates and cost chart | Generated report |
 |---|---|---|
-| [![Diagnosis and agent trace](result_image/result_1.png)](result_image/result_1.png) | [![Candidates and validation](result_image/result_0.png)](result_image/result_0.png) | [![Generated report](result_image/result_2.png)](result_image/result_2.png) |
+| [![Diagnosis and agent trace](result_image/result_0.png)](result_image/result_0.png) | [![Candidates and cost chart](result_image/result_1.png)](result_image/result_1.png) | [![Generated report](result_image/result_2.png)](result_image/result_2.png) |
 
 *Click a screenshot to view it full size.*
 
