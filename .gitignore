@@ -20,3 +20,9 @@ output/
 
 # Office lock files
 ~$*
+
+# Local planning notes (kept locally, not published)
+task.md
+plan.md
+requirements-old.txt
+docs/nice_to_have_plan.md
