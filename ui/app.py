@@ -4,6 +4,7 @@ QueryDoctor Streamlit dashboard. Runs the LangGraph agent in-process.
     .venv/bin/streamlit run ui/app.py
 """
 
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -80,6 +81,33 @@ def get_workload_graph():
 SEQ_BLUE = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 NOT_USED_GRAY = "#e9e8e4"
 
+_CODE_SPANS = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
+
+
+def md_safe(text: str) -> str:
+    """
+    Escape `$` so Streamlit's markdown does not render "$15 ... $0.04" as
+    LaTeX math. Code fences and inline code are left untouched (a backslash
+    there would show up literally).
+    """
+    parts = _CODE_SPANS.split(text or "")
+    return "".join(
+        part if i % 2 else part.replace("$", "\\$")
+        for i, part in enumerate(parts)
+    )
+
+
+def fit_width(chart, plot_height: int):
+    """
+    Stretch to the container width but keep `plot_height` for the plot area
+    itself. Streamlit's default autosize ("fit") squeezes legend + axes +
+    plot into the given height, which collapsed short bar charts.
+    """
+    return chart.properties(
+        height=plot_height,
+        autosize=alt.AutoSizeParams(type="fit-x", contains="padding"),
+    )
+
 
 @st.cache_data(ttl=15, show_spinner=False)
 def db_status() -> dict:
@@ -135,7 +163,7 @@ def run_stream(graph, payload, config, label: str):
                         continue
                     for entry in (value or {}).get("trace", []):
                         icon = NODE_ICONS.get(entry["node"], "•")
-                        status.write(f"{icon} **{entry['node']}** — {entry['message']}")
+                        status.write(f"{icon} **{entry['node']}** — {md_safe(entry['message'])}")
             status.update(state="complete", expanded=False)
         except Exception as e:
             failed = True
@@ -225,17 +253,17 @@ def render_cost_chart(values: dict):
 
     accept_line = baseline * (1 - threshold)
     rule = alt.Chart(pd.DataFrame({"x": [accept_line]})).mark_rule(
-        strokeDash=[4, 4], strokeWidth=2, color="#52514e"
+        strokeDash=[4, 4], strokeWidth=2, color="#6e6c66"
     ).encode(x="x:Q")
     rule_label = alt.Chart(pd.DataFrame({
         "x": [accept_line],
         "text": [f"needed for ≥{threshold_pct:.0f}%"],
-    })).mark_text(align="left", dx=4, dy=-6, color="#52514e").encode(
+    })).mark_text(align="left", dx=4, dy=-6, color="#6e6c66").encode(
         x="x:Q", y=alt.value(0), text="text:N"
     )
 
     st.altair_chart(
-        (bars + rule + rule_label).properties(height=max(140, 42 * len(rows))),
+        fit_width(bars + rule + rule_label, 40 * len(rows)),
         width="stretch",
     )
     st.caption(
@@ -271,7 +299,7 @@ def render_attempts_table(values: dict):
     for attempt in values.get("history", []):
         if attempt.get("feedback"):
             with st.expander(f"Critic feedback after iteration {attempt['iteration']}"):
-                st.write(attempt["feedback"])
+                st.markdown(md_safe(attempt["feedback"]))
 
 
 def render_approval(graph, config, payload: dict):
@@ -332,7 +360,7 @@ def render_report(report: dict, values: dict):
             st.code(report["rollback_sql"], language="sql")
 
     with st.container(border=True):
-        st.markdown(report["markdown"])
+        st.markdown(md_safe(report["markdown"]))
 
 
 def render_run(graph, config):
@@ -387,7 +415,7 @@ def render_run(graph, config):
     if values.get("diagnosis"):
         with st.container(border=True):
             st.markdown("**🩺 Bottleneck**")
-            st.markdown(values["diagnosis"])
+            st.markdown(md_safe(values["diagnosis"]))
             scans = [s for s in summary.get("seq_scans", []) if s.get("large_table")]
             for s in scans:
                 filt = f" — filter `{s['filter']}`" if s.get("filter") else ""
@@ -415,7 +443,7 @@ def render_run(graph, config):
     with tab_trace:
         for entry in values.get("trace", []):
             icon = NODE_ICONS.get(entry["node"], "•")
-            st.markdown(f"{icon} **{entry['node']}** — {entry['message']}")
+            st.markdown(f"{icon} **{entry['node']}** — {md_safe(entry['message'])}")
 
     with tab_results:
         render_cost_chart(values)
@@ -667,7 +695,7 @@ def render_heatmap(values: dict):
                             alt.value("#0b0b0b")),
     )
     st.altair_chart(
-        (unused_cells + used_cells + labels).properties(height=max(160, 34 * len(order))),
+        fit_width(unused_cells + used_cells + labels, 34 * len(order)),
         width="stretch",
     )
     st.caption("Each candidate on its own, per query (HypoPG planner estimate). "
@@ -781,7 +809,7 @@ def page_workload():
 
     with t_trace:
         for entry in values.get("trace", []):
-            st.markdown(f"{NODE_ICONS.get(entry['node'], '•')} **{entry['node']}** — {entry['message']}")
+            st.markdown(f"{NODE_ICONS.get(entry['node'], '•')} **{entry['node']}** — {md_safe(entry['message'])}")
 
     with t_matrix:
         render_heatmap(values)
@@ -803,7 +831,7 @@ def page_workload():
             if sel.get("not_selected"):
                 with st.expander(f"Candidates not selected ({len(sel['not_selected'])})"):
                     for n in sel["not_selected"]:
-                        st.markdown(f"- `{n['sql']}` — {n['reason']}")
+                        st.markdown(f"- `{n['sql']}` — {md_safe(n['reason'])}")
 
     with t_report:
         if report:
@@ -816,7 +844,7 @@ def page_workload():
                 d3.download_button("⬇ rollback.sql", report["rollback_sql"],
                                    file_name="querydoctor_workload_rollback.sql")
             with st.container(border=True):
-                st.markdown(report["markdown"])
+                st.markdown(md_safe(report["markdown"]))
         else:
             st.caption("The report appears after approval, rejection, or no-fix.")
 
